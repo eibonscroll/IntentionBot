@@ -4,12 +4,16 @@ import os
 import time
 from better_profanity import profanity
 
-# Load environment variables
-TWITTER_BEARER_TOKEN = os.environ["TWITTER_BEARER_TOKEN"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-BOT_HANDLE = os.environ["BOT_HANDLE"]
 
 print("ENVIRONMENT KEYS:", list(os.environ.keys()))  # DEBUG ONLY
+
+# Load environment variables
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+BOT_HANDLE = os.environ["BOT_HANDLE"]
+TWITTER_BEARER_TOKEN = os.environ["TWITTER_BEARER_TOKEN"]
+
+
+
 
 # Set OpenAI key
 openai.api_key = OPENAI_API_KEY

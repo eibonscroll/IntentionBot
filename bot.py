@@ -1,8 +1,9 @@
 import requests
 import openai
 import os
-import time
+from datetime import datetime
 from better_profanity import profanity
+import time
 
 # Load environment variables
 TWITTER_BEARER_TOKEN = os.environ["TWITTER_BEARER_TOKEN"]
@@ -67,13 +68,18 @@ def fetch_mentions():
     if last_id:
         params["since_id"] = last_id
 
-    print("⏳ Making Twitter request...")
+    print("Making Twitter request...")
     response = requests.get(SEARCH_URL, auth=bearer_oauth, params=params)
     print(f"Status: {response.status_code}")
+    print("Rate limit headers:")
+    print("  x-rate-limit-limit:", response.headers.get("x-rate-limit-limit"))
+    print("  x-rate-limit-remaining:", response.headers.get("x-rate-limit-remaining"))
+    reset = response.headers.get("x-rate-limit-reset")
+    if reset:
+        print("  x-rate-limit-reset:", datetime.fromtimestamp(int(reset)))
 
     if response.status_code == 429:
-        print("Rate limit hit. Sleeping 15 mins...")
-        time.sleep(900)
+        print("Rate limit hit. Exiting early.")
         return []
 
     if response.status_code != 200:
@@ -99,7 +105,7 @@ def reply_to_tweet(tweet_id, message):
     }
     response = requests.post(POST_URL, json=payload, headers=headers)
     if response.status_code == 201:
-        print(f"Replied: {message}")
+        print("Reply sent:", message)
     else:
         print(f"Reply failed: {response.status_code} - {response.text}")
 
@@ -112,10 +118,10 @@ def respond_to_mentions():
         text = tweet["text"]
         author_id = tweet["author_id"]
 
-        print(f"@{author_id}: {text}")
+        print(f"Tweet from {author_id}: {text}")
 
         if not is_clean(text):
-            print("Skipping due to profanity or spam.")
+            print("Skipped due to profanity or spam.")
             continue
 
         reply = generate_reply(text)
@@ -127,10 +133,7 @@ def respond_to_mentions():
         reply_to_tweet(tweet_id, reply_text)
 
 if __name__ == "__main__":
-    while True:
-        try:
-            respond_to_mentions()
-            time.sleep(900)  # Every 15 minutes
-        except Exception as e:
-            print("Error:", e)
-            time.sleep(900)
+    try:
+        respond_to_mentions()
+    except Exception as e:
+        print("Error:", e)

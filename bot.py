@@ -4,27 +4,17 @@ import os
 import time
 from better_profanity import profanity
 
-
-print("ENVIRONMENT KEYS:", list(os.environ.keys()))  # DEBUG ONLY
-print("BOT_HANDLE =", os.environ.get("BOT_HANDLE"))
-print("TWITTER_BEARER_TOKEN =", os.environ.get("TWITTER_BEARER_TOKEN"))
-
 # Load environment variables
+TWITTER_BEARER_TOKEN = os.environ["TWITTER_BEARER_TOKEN"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 BOT_HANDLE = os.environ["BOT_HANDLE"]
-TWITTER_BEARER_TOKEN = os.environ["TWITTER_BEARER_TOKEN"]
 
-
-
-
-# Set OpenAI key
 openai.api_key = OPENAI_API_KEY
 
-# Twitter search endpoint
 SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
+POST_URL = "https://api.twitter.com/2/tweets"
 LAST_ID_FILE = "last_seen_id.txt"
 
-# Load profanity filter
 profanity.load_censor_words()
 
 def bearer_oauth(r):
@@ -54,18 +44,16 @@ def is_clean(text):
     return not any(word in text.lower() for word in hate_keywords)
 
 def generate_reply(user_text):
-    prompt = f"""You are a spiritual guide. When someone asks a question, you reply with a short, emotionally supportive intention or affirmation they can repeat.
-It must be under 280 characters.
-Use one of these formats: "Repeat after me: ...", "Say this: ...", or "Affirmation: ..."
-
-Tweet: "{user_text}"
-Reply:"""
-
+    prompt = (
+        "You are a spiritual guide. When someone asks a question, you reply with a short, "
+        "emotionally supportive intention or affirmation they can repeat. It must be under 280 characters.\n"
+        "Use one of these formats: 'Repeat after me: ...', 'Say this: ...', or 'Affirmation: ...'\n\n"
+        f"Tweet: \"{user_text}\"\nReply:"
+    )
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[{"role": "user", "content": prompt}]
     )
-
     return response['choices'][0]['message']['content'].strip()
 
 def fetch_mentions():
@@ -79,18 +67,26 @@ def fetch_mentions():
     if last_id:
         params["since_id"] = last_id
 
+    print("⏳ Making Twitter request...")
     response = requests.get(SEARCH_URL, auth=bearer_oauth, params=params)
+    print(f"Status: {response.status_code}")
+
+    if response.status_code == 429:
+        print("Rate limit hit. Sleeping 15 mins...")
+        time.sleep(900)
+        return []
+
     if response.status_code != 200:
         print(f"Twitter API Error {response.status_code}: {response.text}")
         return []
 
     data = response.json().get("data", [])
     if data:
-        save_last_seen_id(data[0]["id"])
+        most_recent_id = max(tweet["id"] for tweet in data)
+        save_last_seen_id(most_recent_id)
     return data
 
-def reply_to_tweet(tweet_id, user_id, message):
-    url = "https://api.twitter.com/2/tweets"
+def reply_to_tweet(tweet_id, message):
     payload = {
         "text": message,
         "reply": {
@@ -101,11 +97,11 @@ def reply_to_tweet(tweet_id, user_id, message):
         "Authorization": f"Bearer {TWITTER_BEARER_TOKEN}",
         "Content-Type": "application/json"
     }
-    r = requests.post(url, json=payload, headers=headers)
-    if r.status_code == 201:
+    response = requests.post(POST_URL, json=payload, headers=headers)
+    if response.status_code == 201:
         print(f"Replied: {message}")
     else:
-        print(f"Reply failed: {r.status_code} - {r.text}")
+        print(f"Reply failed: {response.status_code} - {response.text}")
 
 def respond_to_mentions():
     print("Checking for new mentions...")
@@ -128,13 +124,13 @@ def respond_to_mentions():
             print("Reply too long, skipping.")
             continue
 
-        reply_to_tweet(tweet_id, author_id, reply_text)
+        reply_to_tweet(tweet_id, reply_text)
 
 if __name__ == "__main__":
     while True:
         try:
             respond_to_mentions()
-            time.sleep(300)  # Poll every 5 minutes
+            time.sleep(900)  # Every 15 minutes
         except Exception as e:
             print("Error:", e)
-            time.sleep(300)
+            time.sleep(900)

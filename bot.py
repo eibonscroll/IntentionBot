@@ -1,54 +1,49 @@
-import tweepy
+import requests
 import openai
-import time
 import os
+import time
 from better_profanity import profanity
 
-TWITTER_API_KEY = os.environ["TWITTER_API_KEY"]
-TWITTER_API_SECRET = os.environ["TWITTER_API_SECRET"]
-TWITTER_ACCESS_TOKEN = os.environ["TWITTER_ACCESS_TOKEN"]
-TWITTER_ACCESS_SECRET = os.environ["TWITTER_ACCESS_SECRET"]
+# Load environment variables
+TWITTER_BEARER_TOKEN = os.environ["TWITTER_BEARER_TOKEN"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+BOT_HANDLE = os.environ["BOT_HANDLE"]
 
-# Authenticate with Twitter
-auth = tweepy.OAuth1UserHandler(
-    TWITTER_API_KEY, TWITTER_API_SECRET,
-    TWITTER_ACCESS_TOKEN, TWITTER_ACCESS_SECRET
-)
-api = tweepy.API(auth)
-
-# Authenticate with OpenAI
+# Set OpenAI key
 openai.api_key = OPENAI_API_KEY
 
-# File to store last seen tweet ID
-LAST_ID_FILE = "last_mention_id.txt"
+# Twitter search endpoint
+SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
+LAST_ID_FILE = "last_seen_id.txt"
 
-# Load profanity list
+# Load profanity filter
 profanity.load_censor_words()
+
+def bearer_oauth(r):
+    r.headers["Authorization"] = f"Bearer {TWITTER_BEARER_TOKEN}"
+    r.headers["User-Agent"] = "IntentionBot"
+    return r
 
 def load_last_seen_id():
     if os.path.exists(LAST_ID_FILE):
         with open(LAST_ID_FILE, "r") as f:
-            return int(f.read().strip())
+            return f.read().strip()
     return None
 
 def save_last_seen_id(tweet_id):
     with open(LAST_ID_FILE, "w") as f:
-        f.write(str(tweet_id))
+        f.write(tweet_id)
 
 def is_clean(text):
-    """Filters out spam, profanity, and hate speech."""
     if profanity.contains_profanity(text):
         return False
     if len(text.strip()) < 5:
         return False
     hate_keywords = [
-        "kill", "nazi", "gas", "bomb", "rape", "suicide", "die", "genocide",
-        "shoot", "massacre", "torture", "lynch"
+        "kill", "nazi", "gas", "bomb", "rape", "suicide", "die",
+        "genocide", "shoot", "massacre", "torture", "lynch"
     ]
-    if any(bad_word in text.lower() for bad_word in hate_keywords):
-        return False
-    return True
+    return not any(word in text.lower() for word in hate_keywords)
 
 def generate_reply(user_text):
     prompt = f"""You are a spiritual guide. When someone asks a question, you reply with a short, emotionally supportive intention or affirmation they can repeat.
@@ -65,34 +60,73 @@ Reply:"""
 
     return response['choices'][0]['message']['content'].strip()
 
-def respond_to_mentions():
-    print("🔄 Checking for new mentions...")
+def fetch_mentions():
     last_id = load_last_seen_id()
-    mentions = api.mentions_timeline(since_id=last_id, tweet_mode='extended')
+    query = f"@{BOT_HANDLE} -is:retweet"
+    params = {
+        "query": query,
+        "tweet.fields": "author_id,conversation_id",
+        "max_results": 10
+    }
+    if last_id:
+        params["since_id"] = last_id
 
-    for mention in reversed(mentions):
-        tweet_text = mention.full_text
-        print(f"💬 @{mention.user.screen_name}: {tweet_text}")
+    response = requests.get(SEARCH_URL, auth=bearer_oauth, params=params)
+    if response.status_code != 200:
+        print(f"Twitter API Error {response.status_code}: {response.text}")
+        return []
 
-        if not is_clean(tweet_text):
-            print("⚠️ Skipping tweet due to profanity, spam, or hate content.")
+    data = response.json().get("data", [])
+    if data:
+        save_last_seen_id(data[0]["id"])
+    return data
+
+def reply_to_tweet(tweet_id, user_id, message):
+    url = "https://api.twitter.com/2/tweets"
+    payload = {
+        "text": message,
+        "reply": {
+            "in_reply_to_tweet_id": tweet_id
+        }
+    }
+    headers = {
+        "Authorization": f"Bearer {TWITTER_BEARER_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    r = requests.post(url, json=payload, headers=headers)
+    if r.status_code == 201:
+        print(f"Replied: {message}")
+    else:
+        print(f"Reply failed: {r.status_code} - {r.text}")
+
+def respond_to_mentions():
+    print("Checking for new mentions...")
+    tweets = fetch_mentions()
+
+    for tweet in tweets:
+        tweet_id = tweet["id"]
+        text = tweet["text"]
+        author_id = tweet["author_id"]
+
+        print(f"@{author_id}: {text}")
+
+        if not is_clean(text):
+            print("Skipping due to profanity or spam.")
             continue
 
-        reply = generate_reply(tweet_text)
-        reply_text = f"@{mention.user.screen_name} {reply}"
+        reply = generate_reply(text)
+        reply_text = f"@{BOT_HANDLE} {reply}"
+        if len(reply_text) > 280:
+            print("Reply too long, skipping.")
+            continue
 
-        if len(reply_text) <= 280:
-            api.update_status(status=reply_text, in_reply_to_status_id=mention.id)
-            print("✅ Replied:", reply_text)
-            save_last_seen_id(mention.id)
-        else:
-            print("⚠️ Reply too long, skipping.")
+        reply_to_tweet(tweet_id, author_id, reply_text)
 
 if __name__ == "__main__":
     while True:
         try:
             respond_to_mentions()
-            time.sleep(300)  # poll every 5 minutes
+            time.sleep(300)  # Poll every 5 minutes
         except Exception as e:
-            print("❌ Error:", e)
+            print("Error:", e)
             time.sleep(300)

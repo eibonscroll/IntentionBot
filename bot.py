@@ -3,7 +3,6 @@ import openai
 import os
 from datetime import datetime
 from better_profanity import profanity
-import time
 
 # Load environment variables
 try:
@@ -19,7 +18,7 @@ openai.api_key = OPENAI_API_KEY
 SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
 POST_URL = "https://api.twitter.com/2/tweets"
 LAST_ID_FILE = "last_seen_id.txt"
-MAX_REPLIES = 3  # To stay under limit
+MAX_REPLIES = 3
 
 profanity.load_censor_words()
 
@@ -37,6 +36,12 @@ def load_last_seen_id():
 def save_last_seen_id(tweet_id):
     with open(LAST_ID_FILE, "w") as f:
         f.write(tweet_id)
+
+def load_blocked_users():
+    if not os.path.exists("blocked_users.txt"):
+        return set()
+    with open("blocked_users.txt", "r") as f:
+        return set(line.strip() for line in f if line.strip())
 
 def is_clean(text):
     if profanity.contains_profanity(text):
@@ -96,12 +101,20 @@ def reply_to_tweet(tweet_id, message):
         "Content-Type": "application/json"
     }
     response = requests.post(POST_URL, json=payload, headers=headers)
-    if response.status_code == 201:
-        print("Replied:", message)
-    else:
-        print(f"Reply failed: {response.status_code} - {response.text}")
+    return response.status_code == 201, response.status_code, response.text
+
+def log_reply(tweet_id, user, text, reply):
+    with open("replies_log.csv", "a") as log:
+        log.write(f"{tweet_id},{user},{datetime.utcnow()},{text.replace(',', ' ')},{reply.replace(',', ' ')}\n")
+
+def log_rejection(tweet_id, user, text, reason):
+    with open("rejected_log.csv", "a") as rej:
+        rej.write(f"{tweet_id},{user},{datetime.utcnow()},{reason},{text.replace(',', ' ')}\n")
+    with open("blocked_users.txt", "a") as blk:
+        blk.write(f"{user}\n")
 
 def respond_to_mentions():
+    blocked_users = load_blocked_users()
     tweets = fetch_mentions()
     print(f"Mentions found: {len(tweets)}")
 
@@ -110,19 +123,30 @@ def respond_to_mentions():
         text = tweet["text"]
         user = tweet["author_id"]
 
+        if user in blocked_users:
+            print(f"User {user} is blocked. Skipping.")
+            continue
+
         print(f"Processing tweet from {user}: {text}")
 
         if not is_clean(text):
             print("Skipped due to content filtering.")
+            log_rejection(tweet_id, user, text, "Filtered")
             continue
 
         reply = generate_reply(text)
         full_reply = f"@{BOT_HANDLE} {reply}"
         if len(full_reply) > 280:
             print("Reply too long. Skipping.")
+            log_rejection(tweet_id, user, text, "Reply too long")
             continue
 
-        reply_to_tweet(tweet_id, full_reply)
+        success, status_code, response_text = reply_to_tweet(tweet_id, full_reply)
+        if success:
+            print("Replied.")
+            log_reply(tweet_id, user, text, reply)
+        else:
+            print(f"Reply failed: {status_code} - {response_text}")
 
 if __name__ == "__main__":
     print("Starting bot run at", datetime.utcnow())

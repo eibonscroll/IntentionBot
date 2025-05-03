@@ -3,6 +3,7 @@ import openai
 import os
 from datetime import datetime
 from better_profanity import profanity
+import csv
 
 # Load environment variables
 try:
@@ -18,6 +19,8 @@ openai.api_key = OPENAI_API_KEY
 SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
 POST_URL = "https://api.twitter.com/2/tweets"
 LAST_ID_FILE = "last_seen_id.txt"
+REPLIES_LOG = "replies_log.csv"
+REJECTED_LOG = "rejected_log.csv"
 MAX_REPLIES = 3
 
 profanity.load_censor_words()
@@ -103,13 +106,23 @@ def reply_to_tweet(tweet_id, message):
     response = requests.post(POST_URL, json=payload, headers=headers)
     return response.status_code == 201, response.status_code, response.text
 
+def write_csv_header_if_needed(filename, header):
+    if not os.path.exists(filename):
+        with open(filename, "w", newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+
 def log_reply(tweet_id, user, text, reply):
-    with open("replies_log.csv", "a") as log:
-        log.write(f"{tweet_id},{user},{datetime.utcnow()},{text.replace(',', ' ')},{reply.replace(',', ' ')}\n")
+    write_csv_header_if_needed(REPLIES_LOG, ["tweet_id", "user", "timestamp", "text", "reply"])
+    with open(REPLIES_LOG, "a", newline='') as log:
+        writer = csv.writer(log)
+        writer.writerow([tweet_id, user, datetime.utcnow(), text, reply])
 
 def log_rejection(tweet_id, user, text, reason):
-    with open("rejected_log.csv", "a") as rej:
-        rej.write(f"{tweet_id},{user},{datetime.utcnow()},{reason},{text.replace(',', ' ')}\n")
+    write_csv_header_if_needed(REJECTED_LOG, ["tweet_id", "user", "timestamp", "reason", "text"])
+    with open(REJECTED_LOG, "a", newline='') as rej:
+        writer = csv.writer(rej)
+        writer.writerow([tweet_id, user, datetime.utcnow(), reason, text])
     with open("blocked_users.txt", "a") as blk:
         blk.write(f"{user}\n")
 

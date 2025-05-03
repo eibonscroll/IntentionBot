@@ -9,6 +9,8 @@ TWITTER_BEARER_TOKEN = os.environ["TWITTER_BEARER_TOKEN"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 BOT_HANDLE = os.environ["BOT_HANDLE"]
 
+print("ENVIRONMENT KEYS:", list(os.environ.keys()))  # DEBUG ONLY
+
 # Set OpenAI key
 openai.api_key = OPENAI_API_KEY
 

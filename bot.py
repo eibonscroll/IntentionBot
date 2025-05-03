@@ -6,15 +6,20 @@ from better_profanity import profanity
 import time
 
 # Load environment variables
-TWITTER_BEARER_TOKEN = os.environ["TWITTER_BEARER_TOKEN"]
-OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-BOT_HANDLE = os.environ["BOT_HANDLE"]
+try:
+    TWITTER_BEARER_TOKEN = os.environ["TWITTER_BEARER_TOKEN"]
+    OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+    BOT_HANDLE = os.environ["BOT_HANDLE"]
+except KeyError as e:
+    print(f"Missing environment variable: {e}")
+    exit(1)
 
 openai.api_key = OPENAI_API_KEY
 
 SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
 POST_URL = "https://api.twitter.com/2/tweets"
 LAST_ID_FILE = "last_seen_id.txt"
+MAX_REPLIES = 3  # To stay under limit
 
 profanity.load_censor_words()
 
@@ -38,10 +43,7 @@ def is_clean(text):
         return False
     if len(text.strip()) < 5:
         return False
-    hate_keywords = [
-        "kill", "nazi", "gas", "bomb", "rape", "suicide", "die",
-        "genocide", "shoot", "massacre", "torture", "lynch"
-    ]
+    hate_keywords = ["kill", "nazi", "bomb", "rape", "suicide", "die", "genocide", "shoot", "torture"]
     return not any(word in text.lower() for word in hate_keywords)
 
 def generate_reply(user_text):
@@ -68,36 +70,26 @@ def fetch_mentions():
     if last_id:
         params["since_id"] = last_id
 
-    print("Making Twitter request...")
+    print("Requesting mentions from Twitter...")
     response = requests.get(SEARCH_URL, auth=bearer_oauth, params=params)
-    print(f"Status: {response.status_code}")
-    print("Rate limit headers:")
-    print("  x-rate-limit-limit:", response.headers.get("x-rate-limit-limit"))
-    print("  x-rate-limit-remaining:", response.headers.get("x-rate-limit-remaining"))
-    reset = response.headers.get("x-rate-limit-reset")
-    if reset:
-        print("  x-rate-limit-reset:", datetime.fromtimestamp(int(reset)))
-
     if response.status_code == 429:
-        print("Rate limit hit. Exiting early.")
+        print("Rate limit hit. Exiting.")
+        return []
+    elif response.status_code != 200:
+        print(f"Twitter API error {response.status_code}: {response.text}")
         return []
 
-    if response.status_code != 200:
-        print(f"Twitter API Error {response.status_code}: {response.text}")
-        return []
-
-    data = response.json().get("data", [])
-    if data:
-        most_recent_id = max(tweet["id"] for tweet in data)
+    print("Rate limit remaining:", response.headers.get("x-rate-limit-remaining"))
+    tweets = response.json().get("data", [])
+    if tweets:
+        most_recent_id = max(tweet["id"] for tweet in tweets)
         save_last_seen_id(most_recent_id)
-    return data
+    return tweets
 
 def reply_to_tweet(tweet_id, message):
     payload = {
         "text": message,
-        "reply": {
-            "in_reply_to_tweet_id": tweet_id
-        }
+        "reply": {"in_reply_to_tweet_id": tweet_id}
     }
     headers = {
         "Authorization": f"Bearer {TWITTER_BEARER_TOKEN}",
@@ -105,35 +97,34 @@ def reply_to_tweet(tweet_id, message):
     }
     response = requests.post(POST_URL, json=payload, headers=headers)
     if response.status_code == 201:
-        print("Reply sent:", message)
+        print("Replied:", message)
     else:
         print(f"Reply failed: {response.status_code} - {response.text}")
 
 def respond_to_mentions():
-    print("Checking for new mentions...")
     tweets = fetch_mentions()
+    print(f"Mentions found: {len(tweets)}")
 
-    for tweet in tweets:
+    for tweet in tweets[:MAX_REPLIES]:
         tweet_id = tweet["id"]
         text = tweet["text"]
-        author_id = tweet["author_id"]
+        user = tweet["author_id"]
 
-        print(f"Tweet from {author_id}: {text}")
+        print(f"Processing tweet from {user}: {text}")
 
         if not is_clean(text):
-            print("Skipped due to profanity or spam.")
+            print("Skipped due to content filtering.")
             continue
 
         reply = generate_reply(text)
-        reply_text = f"@{BOT_HANDLE} {reply}"
-        if len(reply_text) > 280:
-            print("Reply too long, skipping.")
+        full_reply = f"@{BOT_HANDLE} {reply}"
+        if len(full_reply) > 280:
+            print("Reply too long. Skipping.")
             continue
 
-        reply_to_tweet(tweet_id, reply_text)
+        reply_to_tweet(tweet_id, full_reply)
 
 if __name__ == "__main__":
-    try:
-        respond_to_mentions()
-    except Exception as e:
-        print("Error:", e)
+    print("Starting bot run at", datetime.utcnow())
+    respond_to_mentions()
+    print("Bot finished.")

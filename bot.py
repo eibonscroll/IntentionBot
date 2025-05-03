@@ -3,10 +3,12 @@ import openai
 import time
 import os
 from better_profanity import profanity
-from config import (
-    TWITTER_API_KEY, TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN,
-    TWITTER_ACCESS_SECRET, OPENAI_API_KEY
-)
+
+TWITTER_API_KEY = os.environ["TWITTER_API_KEY"]
+TWITTER_API_SECRET = os.environ["TWITTER_API_SECRET"]
+TWITTER_ACCESS_TOKEN = os.environ["TWITTER_ACCESS_TOKEN"]
+TWITTER_ACCESS_SECRET = os.environ["TWITTER_ACCESS_SECRET"]
+OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 
 # Authenticate with Twitter
 auth = tweepy.OAuth1UserHandler(

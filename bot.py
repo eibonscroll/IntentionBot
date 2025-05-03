@@ -6,6 +6,8 @@ from better_profanity import profanity
 
 
 print("ENVIRONMENT KEYS:", list(os.environ.keys()))  # DEBUG ONLY
+print("BOT_HANDLE =", os.environ.get("BOT_HANDLE"))
+print("TWITTER_BEARER_TOKEN =", os.environ.get("TWITTER_BEARER_TOKEN"))
 
 # Load environment variables
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]

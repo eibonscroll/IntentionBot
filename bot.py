@@ -1,11 +1,11 @@
 import requests
-import openai
 import os
-from datetime import datetime
-from better_profanity import profanity
 import csv
+from datetime import datetime, timezone
+from better_profanity import profanity
+from openai import OpenAI
 
-# Load environment variables
+# Environment variables
 try:
     TWITTER_BEARER_TOKEN = os.environ["TWITTER_BEARER_TOKEN"]
     OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
@@ -14,15 +14,19 @@ except KeyError as e:
     print(f"Missing environment variable: {e}")
     exit(1)
 
-openai.api_key = OPENAI_API_KEY
+# OpenAI setup
+client = OpenAI(api_key=OPENAI_API_KEY)
 
+# Constants
 SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
 POST_URL = "https://api.twitter.com/2/tweets"
 LAST_ID_FILE = "last_seen_id.txt"
 REPLIES_LOG = "replies_log.csv"
 REJECTED_LOG = "rejected_log.csv"
+BLOCKED_USERS_FILE = "blocked_users.txt"
 MAX_REPLIES = 3
 
+# Load profanity filter
 profanity.load_censor_words()
 
 def bearer_oauth(r):
@@ -41,9 +45,9 @@ def save_last_seen_id(tweet_id):
         f.write(tweet_id)
 
 def load_blocked_users():
-    if not os.path.exists("blocked_users.txt"):
+    if not os.path.exists(BLOCKED_USERS_FILE):
         return set()
-    with open("blocked_users.txt", "r") as f:
+    with open(BLOCKED_USERS_FILE, "r") as f:
         return set(line.strip() for line in f if line.strip())
 
 def is_clean(text):
@@ -61,11 +65,12 @@ def generate_reply(user_text):
         "Use one of these formats: 'Repeat after me: ...', 'Say this: ...', or 'Affirmation: ...'\n\n"
         f"Tweet: \"{user_text}\"\nReply:"
     )
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=150
     )
-    return response['choices'][0]['message']['content'].strip()
+    return response.choices[0].message.content.strip()
 
 def fetch_mentions():
     last_id = load_last_seen_id()
@@ -116,14 +121,14 @@ def log_reply(tweet_id, user, text, reply):
     write_csv_header_if_needed(REPLIES_LOG, ["tweet_id", "user", "timestamp", "text", "reply"])
     with open(REPLIES_LOG, "a", newline='') as log:
         writer = csv.writer(log)
-        writer.writerow([tweet_id, user, datetime.utcnow(), text, reply])
+        writer.writerow([tweet_id, user, datetime.now(timezone.utc), text, reply])
 
 def log_rejection(tweet_id, user, text, reason):
     write_csv_header_if_needed(REJECTED_LOG, ["tweet_id", "user", "timestamp", "reason", "text"])
     with open(REJECTED_LOG, "a", newline='') as rej:
         writer = csv.writer(rej)
-        writer.writerow([tweet_id, user, datetime.utcnow(), reason, text])
-    with open("blocked_users.txt", "a") as blk:
+        writer.writerow([tweet_id, user, datetime.now(timezone.utc), reason, text])
+    with open(BLOCKED_USERS_FILE, "a") as blk:
         blk.write(f"{user}\n")
 
 def respond_to_mentions():
@@ -162,6 +167,6 @@ def respond_to_mentions():
             print(f"Reply failed: {status_code} - {response_text}")
 
 if __name__ == "__main__":
-    print("Starting bot run at", datetime.utcnow())
+    print("Starting bot run at", datetime.now(timezone.utc))
     respond_to_mentions()
     print("Bot finished.")

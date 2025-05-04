@@ -17,16 +17,17 @@ except KeyError as e:
 # OpenAI setup
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Constants
-SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
-POST_URL = "https://api.twitter.com/2/tweets"
-LAST_ID_FILE = "last_seen_id.txt"
-REPLIES_LOG = "replies_log.csv"
-REJECTED_LOG = "rejected_log.csv"
-BLOCKED_USERS_FILE = "blocked_users.txt"
+# Constants (Volume-mapped paths)
+BASE_PATH = "/mnt/data"
+REPLIES_LOG = os.path.join(BASE_PATH, "replies_log.csv")
+REJECTED_LOG = os.path.join(BASE_PATH, "rejected_log.csv")
+BLOCKED_USERS_FILE = os.path.join(BASE_PATH, "blocked_users.txt")
+LAST_ID_FILE = os.path.join(BASE_PATH, "last_seen_id.txt")
 MAX_REPLIES = 3
 
-# Load profanity filter
+SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
+POST_URL = "https://api.twitter.com/2/tweets"
+
 profanity.load_censor_words()
 
 def bearer_oauth(r):

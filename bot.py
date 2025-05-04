@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from better_profanity import profanity
 from openai import OpenAI
 
-# Environment variables
+# Load environment variables
 try:
     TWITTER_BEARER_TOKEN = os.environ["TWITTER_BEARER_TOKEN"]
     OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
@@ -17,7 +17,7 @@ except KeyError as e:
 # OpenAI setup
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Constants (Volume-mapped paths)
+# Volume-mapped paths
 BASE_PATH = "/mnt/data"
 REPLIES_LOG = os.path.join(BASE_PATH, "replies_log.csv")
 REJECTED_LOG = os.path.join(BASE_PATH, "rejected_log.csv")
@@ -66,12 +66,16 @@ def generate_reply(user_text):
         "Use one of these formats: 'Repeat after me: ...', 'Say this: ...', or 'Affirmation: ...'\n\n"
         f"Tweet: \"{user_text}\"\nReply:"
     )
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=150
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=150
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print("OpenAI error:", e)
+        return "I am temporarily unavailable. Please try again later."
 
 def fetch_mentions():
     last_id = load_last_seen_id()
